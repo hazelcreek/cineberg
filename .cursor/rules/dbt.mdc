@@ -1,0 +1,69 @@
+---
+paths:
+  - "dbt_project/**/*.sql"
+  - "dbt_project/**/*.yml"
+  - "dbt_project/**/*.yaml"
+alwaysApply: false
+---
+
+# dbt Rules
+
+## Adapter
+
+Use `dbt-trino` only. All models target the `iceberg` catalog in Trino at `http://trino:8090`.
+
+## Model Layer Rules
+
+**Staging (`models/staging/`):**
+- Source: `raw.*` Iceberg tables
+- Clean types, handle nulls, deduplicate
+- One staging model per source entity
+- Materialized as `table` (full refresh is fine)
+- Naming: `stg_<source>_<entity>.sql` (e.g., `stg_tmdb_movies.sql`)
+
+**Marts (`models/marts/`):**
+- Source: `staging.*` models only (never read raw directly)
+- Implement star schema: `fact_*` tables with FK to `dim_*`
+- Materialized as `table` or `incremental` depending on size
+- Naming: `fact_<entity>.sql`, `dim_<entity>.sql`, `bridge_<entities>.sql`
+
+**ML Features (`models/ml_features/`):**
+- Source: `marts.*` models
+- Aggregate or join for feature engineering
+- Materialized as `table`
+
+## YAML Descriptions Are Mandatory
+
+Every model and every column **must** have a description in the YAML schema file.
+These descriptions are used as context for the Step 10 text-to-SQL agent — vague descriptions produce bad SQL.
+
+```yaml
+models:
+  - name: fact_movies
+    description: >
+      One row per movie. Contains all measurable attributes (budget, revenue,
+      vote scores, runtime) with foreign keys to dimension tables.
+    columns:
+      - name: movie_id
+        description: TMDB movie ID, primary key.
+      - name: revenue
+        description: Worldwide box office revenue in USD. Null if unreported.
+```
+
+## dbt Tests
+
+Every model must have at minimum:
+- `unique` + `not_null` on primary keys
+- `relationships` for all foreign keys
+
+## Iceberg Materialization Config
+
+```sql
+{{ config(
+    materialized='table',
+    properties={
+        "format": "'PARQUET'",
+        "partitioning": "ARRAY['year(release_date)']"
+    }
+) }}
+```

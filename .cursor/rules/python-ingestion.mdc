@@ -1,0 +1,78 @@
+---
+paths:
+  - "ingestion/**/*.py"
+  - "spark/**/*.py"
+  - "ai/**/*.py"
+alwaysApply: false
+---
+
+# Python Ingestion & Spark Rules
+
+## Every Ingestion Script Must
+
+- Start with a module docstring: purpose, step number, and dependencies (services + env vars)
+- Read all config from environment variables — no hardcoded values
+- Be **idempotent**: running twice must not corrupt Iceberg tables (use MERGE INTO or overwrite partitions)
+- Handle API rate limits with exponential backoff retry
+- Use **explicit Iceberg schemas** (StructType) — never infer from DataFrame
+- Write to `nessie.<layer>.<table>` naming: `nessie.raw.tmdb_movies`
+
+## Spark Session Pattern
+
+```python
+from pyspark.sql import SparkSession
+import os
+
+spark = SparkSession.builder \
+    .appName("cineberg-<script-name>") \
+    .config("spark.sql.catalog.nessie", "org.apache.iceberg.spark.SparkCatalog") \
+    .config("spark.sql.catalog.nessie.catalog-impl", "org.apache.iceberg.nessie.NessieCatalog") \
+    .config("spark.sql.catalog.nessie.uri", os.getenv("NESSIE_URI", "http://nessie:19120/api/v2")) \
+    .config("spark.sql.catalog.nessie.ref", "main") \
+    .config("spark.sql.catalog.nessie.warehouse", "s3a://warehouse/") \
+    .config("spark.sql.catalog.nessie.io-impl", "org.apache.iceberg.aws.s3.S3FileIO") \
+    .getOrCreate()
+```
+
+## Iceberg Write Pattern
+
+```python
+# Prefer writeTo with explicit options
+df.writeTo("nessie.raw.tmdb_movies") \
+    .option("write.format.default", "parquet") \
+    .tableProperty("write.parquet.compression-codec", "snappy") \
+    .partitionedBy(years("release_date")) \
+    .createOrReplace()
+
+# For upserts (Step 3+)
+spark.sql("""
+    MERGE INTO nessie.raw.tmdb_movies t
+    USING updates u ON t.id = u.id
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+""")
+```
+
+## API Call Pattern
+
+```python
+import time
+import requests
+
+def fetch_with_retry(url: str, params: dict, max_retries: int = 3) -> dict:
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(2 ** attempt)
+```
+
+## Gotchas
+
+- OMDb free tier: 1000 req/day — track state in `raw.ingestion_log` to resume
+- Reddit streaming generates tiny Iceberg files — Step 6 runs compaction to fix this
+- Always log to `raw.ingestion_log`: run timestamp, record count, status

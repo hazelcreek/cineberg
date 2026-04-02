@@ -1,0 +1,49 @@
+---
+paths:
+  - "ai/**/*.py"
+alwaysApply: false
+---
+
+# AI Services Rules
+
+## General
+
+- All AI code lives in `ai/` with three subdirectories: `embeddings/`, `text_to_sql/`, `sentiment/`
+- Read data from Iceberg tables via PyIceberg or Trino (not direct Parquet reads)
+- Write results back as Iceberg tables in the `ml_features` namespace
+- Always store `model_version` and `generated_at` columns for lineage tracking
+
+## Embeddings (Step 9)
+
+- Default model: `sentence-transformers/all-MiniLM-L6-v2` (runs locally, no API key)
+- Store embeddings as `array<float>` in `ml_features.movie_embeddings`
+- Cosine similarity in pure Python/NumPy — no external vector DB needed for this project
+- Track model version so multiple embedding models can coexist in the same table
+
+## Text-to-SQL Agent (Step 10)
+
+- LLM options (in preference order): Claude API → Ollama local → OpenAI API
+- System prompt must include: Trino schema metadata + dbt column descriptions
+- **Only generate SELECT queries** — validate with a parse check before execution
+- Execute via the `trino` Python client (not Spark)
+- Add a query timeout (30s default) to prevent runaway queries
+- Re-prompt on SQL errors rather than crashing
+
+```python
+# Claude API usage
+import anthropic
+client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+```
+
+## Sentiment (Step 11)
+
+- Default model: `cardiffnlp/twitter-roberta-base-sentiment-latest` (HuggingFace)
+- Output: `sentiment_score` (-1.0 to 1.0), `sentiment_label` (positive/neutral/negative)
+- Write to `ml_features.reddit_sentiment` with `post_id`, `movie_id` FK
+- Aggregate daily in a dbt model before joining to `fact_movies`
+
+## Gotchas
+
+- PyIceberg and PySpark can't share the same JVM process — use separate scripts
+- sentence-transformers requires PyTorch; ensure it's in `ai/requirements.txt`
+- Claude API key: `ANTHROPIC_API_KEY` env var
