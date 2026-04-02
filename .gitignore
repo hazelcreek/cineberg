@@ -205,3 +205,27 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Docker volumes and local data
+docker-volumes/
+local-data/
+
+# Spark local artifacts
+derby.log
+metastore_db/
+spark-warehouse/
+
+# dbt artifacts
+dbt_project/target/
+dbt_project/logs/
+dbt_project/dbt_packages/
+.dbt/
+
+# Data files (don't accidentally commit large data)
+*.parquet
+*.orc
+*.avro
+
+# Secrets / local overrides
+docker-compose.override.yml
+.env.local

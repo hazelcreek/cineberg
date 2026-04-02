@@ -1,0 +1,54 @@
+---
+paths:
+  - "docker-compose*.yml"
+  - "infra/**"
+alwaysApply: false
+---
+
+# Docker Compose Rules
+
+## Incremental Build
+
+Services are added one step at a time. **Never add a service before its step.**
+
+| Step | Services to add |
+|---|---|
+| 1 | minio, nessie, spark (+ jupyter) |
+| 2 | trino |
+| 5 | redpanda |
+| 7 | dremio |
+| 8 | metabase |
+| 3+ | airflow (optional) |
+
+Always comment which step introduced each service:
+```yaml
+# --- Step 5: Streaming ---
+redpanda:
+  image: redpandadata/redpanda:latest
+```
+
+## Volume Strategy
+
+- Use named volumes for persistent data (MinIO buckets, Nessie state, Metabase DB)
+- Never mount the project root into a service container
+- Store MinIO data in `minio-data` volume, not a bind mount to `./data`
+
+## Network
+
+- Use a single custom bridge network (`cineberg-net`) for all services
+- Services communicate by container name (e.g., `http://nessie:19120`)
+
+## Resource Limits
+
+Target 16 GB RAM total. Heaviest services:
+- Spark (driver + executor): 4–6 GB
+- Dremio: 4 GB
+- Trino: 2 GB
+
+Set `mem_limit` on Spark and Dremio to prevent OOM killing other services.
+
+## Key Service Config
+
+**Nessie URI (API v2):** `http://nessie:19120/api/v2`
+**MinIO warehouse bucket:** `s3a://warehouse/`
+**Trino port:** 8090 (not default 8080 — that's Spark UI)

@@ -1,0 +1,38 @@
+---
+alwaysApply: true
+---
+
+# Cineberg — General Rules
+
+Movie analytics lakehouse: TMDB/OMDb/Reddit → PySpark → Apache Iceberg (MinIO + Nessie) → Trino/Dremio → dbt → Metabase → AI (embeddings, text-to-SQL, sentiment).
+
+Full plan: `Ideas/PROJECT_PLAN.md`
+
+## Build Philosophy
+
+- Build **incrementally** following the 11-step plan. Don't add services before their step.
+- Test against each step's success criteria before moving on.
+- Python for ingestion, SQL (dbt) for transformation — never mix concerns.
+- Always use Iceberg-native features: hidden partitioning, MERGE INTO, schema evolution, time travel.
+
+## Tech Constraints
+
+- Python 3.11+ only
+- PySpark (not Scala) for all Spark work
+- dbt-trino adapter (not dbt-spark)
+- All services run in Docker Compose on a single machine (16 GB RAM target)
+
+## Secrets
+
+- All API keys and credentials via environment variables
+- Never hardcode secrets; read from `.env` via `os.getenv()`
+- `.env` is gitignored — use `.env.example` as the template
+
+## Service Ports
+
+- MinIO: 9000 (API), 9001 (UI)
+- Nessie: 19120
+- Spark UI: 8080, Jupyter: 8888
+- Trino: **8090** (not 8080)
+- Dremio: 9047
+- Metabase: 3000
